@@ -107,9 +107,13 @@
             });
         };
 
-        function puanHesapla(tNet, kNet) {
-            let ap = 0.4 * (50 + 10 * ((tNet - 48) / 13)) + 0.6 * (50 + 10 * ((kNet - 50) / 13));
+              function puanHesapla(tNet, kNet, tur = 'K') {
+            let tStd = 50 + 10 * ((tNet - 48) / 13);
+            let kStd = 50 + 10 * ((kNet - 50) / 13);
+            let ap = tur === 'T' ? (0.7 * tStd + 0.3 * kStd) : (0.4 * tStd + 0.6 * kStd);
             return Math.min(85, Math.max(30, 55 + (ap - 50) * 0.65));
+        }
+
         }
 
         function hesapla() {
@@ -159,11 +163,16 @@
                 if (item.tur === 'temel') hedefTemelNet += kazanilanNet; else hedefKlinikNet += kazanilanNet;
             });
             let hedefPuan = puanHesapla(hedefTemelNet, hedefKlinikNet);
+            let hedefPuan = puanHesapla(hedefTemelNet, hedefKlinikNet, 'K');
+            let mevcutTPuan = puanHesapla(temelNet, klinikNet, 'T');
+            let hedefTPuan = puanHesapla(hedefTemelNet, hedefKlinikNet, 'T');
 
             let html = `<div class="score-banner">
-                <strong>Mevcut Tahmini K Puanı:</strong> ${mevcutPuan.toFixed(2)} &nbsp;➔&nbsp; 
-                <strong>Hedeflenen K Puanı:</strong> <span style="color:#16a34a; font-weight:bold;">${hedefPuan.toFixed(2)} (+${(hedefPuan - mevcutPuan).toFixed(2)})</span><br>
+                <strong>K Puanı (Klinik):</strong> ${mevcutPuan.toFixed(2)} &nbsp;➔&nbsp; Optimizasyonla Ulaşabileceğin: <span style="color:#16a34a; font-weight:bold;">${hedefPuan.toFixed(2)} (+${(hedefPuan - mevcutPuan).toFixed(2)})</span><br>
+                <strong>T Puanı (Temel):</strong> ${mevcutTPuan.toFixed(2)} &nbsp;➔&nbsp; Optimizasyonla Ulaşabileceğin: <span style="color:#16a34a; font-weight:bold;">${hedefTPuan.toFixed(2)} (+${(hedefTPuan - mevcutTPuan).toFixed(2)})</span><br>
                 <span style="font-size:12px; color:#475569;">Mevcut Netler: Temel ${temelNet.toFixed(2)} | Klinik ${klinikNet.toFixed(2)}</span>
+            </div>`;
+
             </div>`;
 
             html += `<div class="table-wrap"><table><tr><th>Sıra</th><th>Alt Branş</th><th>Net</th><th>Önerilen Süre</th><th>Getiri</th></tr>`;
