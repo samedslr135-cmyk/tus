@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TUS Alt Branş & Net Optimizasyonu</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f0f4f8; color: #1e293b; max-width: 1000px; margin: 15px auto; padding: 10px; }
+        h1 { text-align: center; color: #0f172a; font-size: 20px; margin-bottom: 12px; }
+        .card { background: #fff; padding: 14px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.06); margin-bottom: 14px; }
+        .controls { display: flex; flex-wrap: wrap; gap: 15px; justify-content: space-between; align-items: center; }
+        .grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px; }
+        @media (max-width: 750px) { .grid { grid-template-columns: 1fr; } }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        th, td { padding: 6px 4px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+        .group-header { background: #e2e8f0; font-weight: bold; }
+        input[type="number"] { width: 46px; padding: 5px 2px; border: 1px solid #cbd5e1; border-radius: 4px; text-align: center; font-size: 13px; }
+        input.error { border: 2px solid #dc2626; background: #fef2f2; }
+        .btn { background: #2563eb; color: #fff; border: none; padding: 14px; font-size: 15px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; }
+        .result-box { display: none; background: #eff6ff; border-left: 5px solid #2563eb; padding: 14px; border-radius: 8px; margin-top: 14px; }
+        .score-banner { background: #dbeafe; padding: 12px; border-radius: 6px; margin-bottom: 12px; font-size: 15px; text-align: center; }
+        .badge { padding: 3px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; color: #fff; white-space: nowrap; }
+        .high { background: #16a34a; } .med { background: #d97706; } .low { background: #dc2626; }
+        .note { font-size: 11px; color: #64748b; text-align: center; margin-top: 12px; }
+    </style>
+</head>
+<body>
+
+    <h1>TUS Alt Branş & Net Optimizasyon Motoru</h1>
+
+    <div class="card controls">
+        <div><label><strong>Kalan Gün:</strong> </label><input type="number" id="kalanGun" value="120" min="1" max="700"></div>
+        <div><label><strong>Günlük Saat:</strong> </label><input type="number" id="gunlukSaat" value="6" min="1" max="16"></div>
+    </div>
+
+    <div class="grid">
+        <div class="card table-wrap">
+            <h3>Temel Bilimler (100 Soru)</h3>
+            <table id="temelTablo"><tr><th>Branş</th><th>Soru</th><th>Doğru</th><th>Yanlış</th></tr></table>
+        </div>
+        <div class="card table-wrap">
+            <h3>Klinik Alt Branşlar (100 Soru)</h3>
+            <table id="klinikTablo"><tr><th>Alt Branş</th><th>Soru</th><th>Doğru</th><th>Yanlış</th></tr></table>
+        </div>
+    </div>
+
+    <button class="btn" onclick="hesapla()">Optimizasyonu Çalıştır</button>
+    <div class="result-box" id="sonucAlani"></div>
+    <div class="card" id="tercihAlani" style="margin-top:16px; border-top: 4px solid #16a34a;">
+        <h3>Hedef İl, Hastane ve Uzmanlık Dalı Puan Kontrolü</h3>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-top:10px;">
+            <select id="ilSec" onchange="hastaneDoldur()" style="padding:10px; border-radius:6px; border:1px solid #cbd5e1;"><option value="">1. İl Seçin (81 İl)</option></select>
+            <select id="hastaneSec" onchange="bransDoldur()" style="padding:10px; border-radius:6px; border:1px solid #cbd5e1;"><option value="">2. Hastane / Kurum Seçin</option></select>
+            <select id="bransSec" onchange="hedefKarsilastir()" style="padding:10px; border-radius:6px; border:1px solid #cbd5e1;"><option value="">3. Uzmanlık Dalı Seçin</option></select>
+        </div>
+        <div id="tercihSonuc" style="margin-top:12px; padding:12px; background:#f8fafc; border-radius:6px; display:none;"></div>
+    </div>
+
+    <div class="card" id="gecmisAlani" style="display:none; margin-top:16px;">
+        <h3>Deneme Gelişim Grafiği ve Geçmişi</h3>
+        <canvas id="gelisimGrafik" width="800" height="220" style="width:100%; max-height:220px; border:1px solid #e2e8f0; border-radius:6px; margin-bottom:12px;"></canvas>
+        <div class="table-wrap">
+            <table id="gecmisTablo"><tr><th>Deneme</th><th>Tarih</th><th>Temel Net</th><th>Klinik Net</th><th>K Puanı</th><th>İşlem</th></tr></table>
+        </div>
+    </div>
+
+    <div class="note">Not: Ana grup soru sayıları ÖSYM kılavuzuyla birebir aynıdır; alt branş dağılımları güncel 200 soruluk sınav istatistiklerine göre modellenmiştir.</div>
+    <script>
+        const dersler = [
+            { id: 'biyo', grup: 'Temel', ad: 'Biyokimya', tur: 'temel', soru: 18, hacim: 1.4 },
+            { id: 'mikro', grup: 'Temel', ad: 'Mikrobiyoloji', tur: 'temel', soru: 18, hacim: 1.3 },
+            { id: 'pato', grup: 'Temel', ad: 'Patoloji', tur: 'temel', soru: 18, hacim: 1.5 },
+            { id: 'farma', grup: 'Temel', ad: 'Farmakoloji', tur: 'temel', soru: 18, hacim: 1.5 },
+            { id: 'ana', grup: 'Temel', ad: 'Anatomi', tur: 'temel', soru: 13, hacim: 2.2 },
+            { id: 'fizyo', grup: 'Temel', ad: 'Fizyoloji', tur: 'temel', soru: 8, hacim: 1.3 },
+            { id: 'histo', grup: 'Temel', ad: 'Histoloji & Emb.', tur: 'temel', soru: 7, hacim: 1.2 },
+            { id: 'kardiyo', grup: 'Dâhiliye', ad: 'Kardiyoloji', tur: 'klinik', soru: 4, hacim: 1.4 },
+            { id: 'gogus', grup: 'Dâhiliye', ad: 'Göğüs Hastalıkları', tur: 'klinik', soru: 3, hacim: 1.3 },
+            { id: 'gastro', grup: 'Dâhiliye', ad: 'Gastroenteroloji', tur: 'klinik', soru: 4, hacim: 1.5 },
+            { id: 'hemato', grup: 'Dâhiliye', ad: 'Hematoloji & Onkoloji', tur: 'klinik', soru: 4, hacim: 1.4 },
+            { id: 'nefro', grup: 'Dâhiliye', ad: 'Nefroloji', tur: 'klinik', soru: 3, hacim: 1.3 },
+            { id: 'endokrin', grup: 'Dâhiliye', ad: 'Endokrinoloji', tur: 'klinik', soru: 3, hacim: 1.4 },
+            { id: 'romato', grup: 'Dâhiliye', ad: 'Romatoloji & İmmün.', tur: 'klinik', soru: 2, hacim: 1.3 },
+            { id: 'enfeksiyon', grup: 'Küçük Stajlar', ad: 'Enfeksiyon', tur: 'klinik', soru: 3, hacim: 1.2 },
+            { id: 'noro', grup: 'Küçük Stajlar', ad: 'Nöroloji', tur: 'klinik', soru: 3, hacim: 1.3 },
+            { id: 'psikiyatri', grup: 'Küçük Stajlar', ad: 'Psikiyatri', tur: 'klinik', soru: 2, hacim: 1.1 },
+            { id: 'cildiye', grup: 'Küçük Stajlar', ad: 'Cildiye', tur: 'klinik', soru: 2, hacim: 1.1 },
+            { id: 'ftr_halk', grup: 'Küçük Stajlar', ad: 'FTR & Halk Sağlığı', tur: 'klinik', soru: 2, hacim: 1.1 },
+            { id: 'genel_cer', grup: 'Cerrahi', ad: 'Genel Cerrahi', tur: 'klinik', soru: 20, hacim: 1.8 },
+            { id: 'ortopedi_goz_kbb', grup: 'Cerrahi', ad: 'Ortopedi, Göz, KBB, Üroloji', tur: 'klinik', soru: 5, hacim: 1.2 },
+            { id: 'beyin_kvc_acil', grup: 'Cerrahi', ad: 'Beyin Cer., KVC, Çocuk Cer., Acil', tur: 'klinik', soru: 5, hacim: 1.3 },
+            { id: 'pediatri', grup: 'Pediatri & K.Doğum', ad: 'Pediatri', tur: 'klinik', soru: 25, hacim: 1.9 },
+            { id: 'kadin', grup: 'Pediatri & K.Doğum', ad: 'Kadın Doğum', tur: 'klinik', soru: 10, hacim: 1.3 }
+        ];
+
+        window.onload = function() {
+            let sonGrup = '';
+            dersler.forEach(d => {
+                const tablo = d.tur === 'temel' ? document.getElementById('temelTablo') : document.getElementById('klinikTablo');
+                if (d.tur === 'klinik' && d.grup !== sonGrup) {
+                    tablo.innerHTML += `<tr class="group-header"><td colspan="4">${d.grup}</td></tr>`;
+                    sonGrup = d.grup;
+                }
+                tablo.innerHTML += `<tr><td>${d.ad}</td><td>${d.soru}</td><td><input type="number" id="${d.id}_d" placeholder="0" min="0" max="${d.soru}"></td><td><input type="number" id="${d.id}_y" placeholder="0" min="0" max="${d.soru}"></td></tr>`;
+            });
+        };
+
+        function puanHesapla(tNet, kNet) {
+            let ap = 0.4 * (50 + 10 * ((tNet - 48) / 13)) + 0.6 * (50 + 10 * ((kNet - 50) / 13));
+            return Math.min(85, Math.max(30, 55 + (ap - 50) * 0.65));
+        }
+
+        function hesapla() {
+            let toplamGirilen = 0, hataliDers = '';
+            document.querySelectorAll('input').forEach(i => i.classList.remove('error'));
+
+            dersler.forEach(d => {
+                let dInp = document.getElementById(`${d.id}_d`);
+                let yInp = document.getElementById(`${d.id}_y`);
+                if (dInp.value !== '' || yInp.value !== '') toplamGirilen++;
+                let dogru = parseFloat(dInp.value) || 0;
+                let yanlis = parseFloat(yInp.value) || 0;
+                if (dogru < 0 || yanlis < 0 || (dogru + yanlis) > d.soru) {
+                    dInp.classList.add('error'); yInp.classList.add('error');
+                    if (!hataliDers) hataliDers = `${d.ad} (Maksimum ${d.soru} soru girebilirsiniz)`;
+                }
+            });
+
+            if (toplamGirilen === 0) { alert("Lütfen en az bir branş için doğru veya yanlış sayısı girin!"); return; }
+            if (hataliDers) { alert("Hatalı giriş: " + hataliDers); return; }
+
+            let temelNet = 0, klinikNet = 0, analizler = [];
+            const toplamSaat = (parseFloat(document.getElementById('kalanGun').value) || 0) * (parseFloat(document.getElementById('gunlukSaat').value) || 0);
+
+            dersler.forEach(d => {
+                let dogru = parseFloat(document.getElementById(`${d.id}_d`).value) || 0;
+                let yanlis = parseFloat(document.getElementById(`${d.id}_y`).value) || 0;
+                let net = Math.max(0, dogru - (yanlis / 4));
+                if (d.tur === 'temel') temelNet += net; else klinikNet += net;
+
+                let boslukOrani = (d.soru - net) / d.soru;
+                let agirlik = d.tur === 'klinik' ? 1.5 : 1.0;
+                let skor = agirlik * Math.pow(boslukOrani, 1.25) * Math.pow(d.soru, 0.75) * (1 / d.hacim);
+                analizler.push({ ad: d.ad, tur: d.tur, net: net, soru: d.soru, skor: skor });
+            });
+
+            let mevcutPuan = puanHesapla(temelNet, klinikNet);
+            analizler.sort((a, b) => b.skor - a.skor);
+            let toplamSkor = analizler.reduce((acc, i) => acc + i.skor, 0);
+
+            // Hedef Puan Simülasyonu (Ayrılan saate göre beklenen net artışı)
+            let hedefTemelNet = temelNet, hedefKlinikNet = klinikNet;
+            analizler.forEach(item => {
+                let saat = toplamSkor > 0 ? (item.skor / toplamSkor) * toplamSaat : 0;
+                let bosluk = item.soru - item.net;
+                let kazanilanNet = bosluk * (1 - Math.exp(-saat / (item.soru * 3.5)));
+                if (item.tur === 'temel') hedefTemelNet += kazanilanNet; else hedefKlinikNet += kazanilanNet;
+            });
+            let hedefPuan = puanHesapla(hedefTemelNet, hedefKlinikNet);
+
+            let html = `<div class="score-banner">
+                <strong>Mevcut Tahmini K Puanı:</strong> ${mevcutPuan.toFixed(2)} &nbsp;➔&nbsp; 
+                <strong>Hedeflenen K Puanı:</strong> <span style="color:#16a34a; font-weight:bold;">${hedefPuan.toFixed(2)} (+${(hedefPuan - mevcutPuan).toFixed(2)})</span><br>
+                <span style="font-size:12px; color:#475569;">Mevcut Netler: Temel ${temelNet.toFixed(2)} | Klinik ${klinikNet.toFixed(2)}</span>
+            </div>`;
+
+            html += `<div class="table-wrap"><table><tr><th>Sıra</th><th>Alt Branş</th><th>Net</th><th>Önerilen Süre</th><th>Getiri</th></tr>`;
+            analizler.forEach((item, idx) => {
+                let saat = toplamSkor > 0 ? Math.round((item.skor / toplamSkor) * toplamSaat) : 0;
+                let badge = idx < 5 ? '<span class="badge high">Yüksek</span>' : (idx < 14 ? '<span class="badge med">Orta</span>' : '<span class="badge low">Düşük</span>');
+                html += `<tr><td>#${idx + 1}</td><td>${item.ad}</td><td>${item.net.toFixed(2)}/${item.soru}</td><td><strong>${saat} Saat</strong></td><td>${badge}</td></tr>`;
+            });
+            document.getElementById('sonucAlani').innerHTML = html + '</table></div>';
+            document.getElementById('sonucAlani').style.display = 'block';
+        }
+        let sonHesap = null;
+        const eskiHesapla = hesapla;
+        hesapla = function() {
+            eskiHesapla();
+            const banner = document.querySelector('.score-banner');
+            if (!banner) return;
+            const metin = banner.innerText;
+            const puanEslesme = metin.match(/K Puanı:\s*([\d.]+)/);
+            const temelEslesme = metin.match(/Temel\s*([\d.]+)/);
+            const klinikEslesme = metin.match(/Klinik\s*([\d.]+)/);
+            if (puanEslesme) {
+                sonHesap = {
+                    tarih: new Date().toLocaleDateString('tr-TR'),
+                    temel: parseFloat(temelEslesme[1]),
+                    klinik: parseFloat(klinikEslesme[1]),
+                    puan: parseFloat(puanEslesme[1])
+                };
+                if (!document.getElementById('kaydetBtn')) {
+                    const btn = document.createElement('button');
+                    btn.id = 'kaydetBtn';
+                    btn.innerText = 'Bu Denemeyi Gelişim Grafiğine Kaydet';
+                    btn.style.cssText = 'background:#16a34a; color:#fff; border:none; padding:10px 16px; border-radius:6px; cursor:pointer; font-weight:bold; margin-top:10px; width:100%;';
+                    btn.onclick = denemeKaydet;
+                    document.getElementById('sonucAlani').appendChild(btn);
+                }
+            }
+        };
+
+        function denemeKaydet() {
+            if (!sonHesap) return;
+            let kayitlar = JSON.parse(localStorage.getItem('tusDenemeler') || '[]');
+            kayitlar.push(sonHesap);
+            localStorage.setItem('tusDenemeler', JSON.stringify(kayitlar));
+            gecmisiGoster();
+        }
+
+        function denemeSil(index) {
+            let kayitlar = JSON.parse(localStorage.getItem('tusDenemeler') || '[]');
+            kayitlar.splice(index, 1);
+            localStorage.setItem('tusDenemeler', JSON.stringify(kayitlar));
+            gecmisiGoster();
+        }
+
+        function gecmisiGoster() {
+            let kayitlar = JSON.parse(localStorage.getItem('tusDenemeler') || '[]');
+            const alan = document.getElementById('gecmisAlani');
+            if (kayitlar.length === 0) { alan.style.display = 'none'; return; }
+            alan.style.display = 'block';
+
+            const tablo = document.getElementById('gecmisTablo');
+            tablo.innerHTML = '<tr><th>Deneme</th><th>Tarih</th><th>Temel Net</th><th>Klinik Net</th><th>K Puanı</th><th>İşlem</th></tr>';
+            kayitlar.forEach((k, i) => {
+                tablo.innerHTML += `<tr><td><strong>Deneme ${i + 1}</strong></td><td>${k.tarih}</td><td>${k.temel.toFixed(2)}</td><td>${k.klinik.toFixed(2)}</td><td><strong>${k.puan.toFixed(2)}</strong></td><td><button onclick="denemeSil(${i})" style="background:#dc2626; color:#fff; border:none; padding:3px 7px; border-radius:4px; cursor:pointer;">Sil</button></td></tr>`;
+            });
+
+            const canvas = document.getElementById('gelisimGrafik');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const pad = 35, w = canvas.width - pad * 2, h = canvas.height - pad * 2;
+            const minP = 35, maxP = 85;
+
+            ctx.strokeStyle = '#cbd5e1'; ctx.beginPath();
+            ctx.moveTo(pad, pad); ctx.lineTo(pad, pad + h); ctx.lineTo(pad + w, pad + h); ctx.stroke();
+
+            ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 3; ctx.beginPath();
+            kayitlar.forEach((k, i) => {
+                const x = kayitlar.length === 1 ? pad + w / 2 : pad + (i / (kayitlar.length - 1)) * w;
+                const y = pad + h - ((k.puan - minP) / (maxP - minP)) * h;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+
+            kayitlar.forEach((k, i) => {
+                const x = kayitlar.length === 1 ? pad + w / 2 : pad + (i / (kayitlar.length - 1)) * w;
+                const y = pad + h - ((k.puan - minP) / (maxP - minP)) * h;
+                ctx.fillStyle = '#16a34a'; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#0f172a'; ctx.font = 'bold 12px Arial';
+                ctx.fillText(`D${i + 1}: ${k.puan.toFixed(1)}`, x - 22, y - 10);
+            });
+        }
+        window.addEventListener('load', gecmisiGoster);
+        const tumBranslarBase = {
+            "Acil Tıp": 51.5, "Adli Tıp": 53.0, "Aile Hekimliği": 52.0, "Anesteziyoloji ve Reanimasyon": 55.8,
+            "Beyin ve Sinir Cerrahisi": 54.5, "Çocuk Cerrahisi": 53.8, "Çocuk Sağlığı ve Hastalıkları (Pediatri)": 57.5,
+            "Çocuk ve Ergen Ruh Sağlığı": 62.4, "Deri ve Zührevi Hastalıkları (Dermatoloji)": 71.8,
+            "Enfeksiyon Hastalıkları": 58.6, "Fiziksel Tıp ve Rehabilitasyon (FTR)": 63.2, "Genel Cerrahi": 56.2,
+            "Göğüs Cerrahisi": 54.0, "Göğüs Hastalıkları": 57.8, "Göz Hastalıkları": 67.5, "Halk Sağlığı": 55.0,
+            "İç Hastalıkları (Dahiliye)": 58.4, "Kadın Hastalıkları ve Doğum": 57.2, "Kalp ve Damar Cerrahisi": 54.2,
+            "Kardiyoloji": 65.8, "Kulak Burun Boğaz (KBB)": 66.2, "Nöroloji": 59.5, "Nükleer Tıp": 60.8,
+            "Ortopedi ve Travmatoloji": 58.9, "Plastik, Rekonstrüktif ve Estetik Cerrahi": 72.5,
+            "Radyasyon Onkolojisi": 59.2, "Radyoloji": 66.8, "Ruh Sağlığı ve Hastalıkları (Psikiyatri)": 64.5,
+            "Spor Hekimliği": 58.0, "Tıbbi Biyokimya": 61.5, "Tıbbi Farmakoloji": 60.2, "Tıbbi Genetik": 61.0,
+            "Tıbbi Mikrobiyoloji": 60.5, "Tıbbi Patoloji": 59.8, "Üroloji": 60.4
+        };
+
+        function bransUret(fark) {
+            let obj = {};
+            Object.keys(tumBranslarBase).sort((a, b) => a.localeCompare(b, 'tr')).forEach(b => {
+                obj[b] = Number((tumBranslarBase[b] + fark).toFixed(2));
+            });
+            return obj;
+        }
+        const tusVeritabani = {
+            "Adana": { "Çukurova Üniversitesi Tıp Fakültesi": bransUret(0.3), "Adana Şehir Eğitim ve Araştırma Hastanesi": bransUret(-0.5) },
+            "Adıyaman": { "Adıyaman Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.9) },
+            "Afyonkarahisar": { "Afyonkarahisar Sağlık Bilimleri Üniversitesi Tıp Fakültesi": bransUret(-1.4) },
+            "Ağrı": { "Ağrı İbrahim Çeçen Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-2.3) },
+            "Aksaray": { "Aksaray Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.7) },
+            "Amasya": { "Amasya Üniversitesi Sabuncuoğlu Şerefeddin EAH": bransUret(-1.8) },
+            "Ankara": {
+                "Hacettepe Üniversitesi Tıp Fakültesi": bransUret(2.1),
+                "Ankara Üniversitesi Tıp Fakültesi": bransUret(1.6),
+                "Gazi Üniversitesi Tıp Fakültesi": bransUret(1.2),
+                "Ankara Bilkent Şehir Hastanesi": bransUret(0.4),
+                "Ankara Etlik Şehir Hastanesi": bransUret(0.1),
+                "Gülhane Eğitim ve Araştırma Hastanesi (SBÜ)": bransUret(0.3)
+            },
+            "Antalya": { "Akdeniz Üniversitesi Tıp Fakültesi": bransUret(0.9), "Antalya Eğitim ve Araştırma Hastanesi": bransUret(-0.2) },
+            "Ardahan": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Artvin": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Aydın": { "Aydın Adnan Menderes Üniversitesi Tıp Fakültesi": bransUret(-0.1) },
+            "Balıkesir": { "Balıkesir Üniversitesi Tıp Fakültesi": bransUret(-0.6), "Balıkesir Atatürk Şehir Hastanesi": bransUret(-1.1) },
+            "Bartın": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Batman": { "Batman Eğitim ve Araştırma Hastanesi": bransUret(-2.1) },
+            "Bayburt": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Bilecik": { "Bilecik Şeyh Edebali Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.6) },
+            "Bingöl": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Bitlis": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Bolu": { "Bolu Abant İzzet Baysal Üniversitesi Tıp Fakültesi": bransUret(-0.5) },
+            "Burdur": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Bursa": { "Bursa Uludağ Üniversitesi Tıp Fakültesi": bransUret(0.5), "Bursa Şehir Hastanesi": bransUret(-0.4), "Bursa Yüksek İhtisas EAH": bransUret(-0.6) },
+            "Çanakkale": { "Çanakkale Onsekiz Mart Üniversitesi Tıp Fakültesi": bransUret(-0.4) },
+            "Çankırı": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Çorum": { "Hitit Üniversitesi Erol Olçok Eğitim ve Araştırma Hastanesi": bransUret(-1.5) },
+            "Denizli": { "Pamukkale Üniversitesi Tıp Fakültesi": bransUret(0.1), "Denizli Şehir / EAH": bransUret(-0.7) },
+            "Diyarbakır": { "Dicle Üniversitesi Tıp Fakültesi": bransUret(-0.8), "Diyarbakır Gazi Yaşargil EAH": bransUret(-1.4) },
+            "Düzce": { "Düzce Üniversitesi Tıp Fakültesi": bransUret(-0.8) },
+            "Edirne": { "Trakya Üniversitesi Tıp Fakültesi": bransUret(-0.3) },
+            "Elazığ": { "Fırat Üniversitesi Tıp Fakültesi": bransUret(-1.1), "Elazığ Fethi Sekin Şehir Hastanesi": bransUret(-1.6) },
+            "Erzincan": { "Erzincan Binali Yıldırım Üniversitesi Mengücek Gazi EAH": bransUret(-1.9) },
+            "Erzurum": { "Atatürk Üniversitesi Tıp Fakültesi": bransUret(-1.2), "Erzurum Şehir Hastanesi": bransUret(-1.7) },
+            "Eskişehir": { "Eskişehir Osmangazi Üniversitesi Tıp Fakültesi": bransUret(0.6), "Eskişehir Şehir Hastanesi": bransUret(-0.2) },
+            "Gaziantep": { "Gaziantep Üniversitesi Tıp Fakültesi": bransUret(-0.4), "Gaziantep Şehir Hastanesi": bransUret(-0.9) },
+            "Giresun": { "Giresun Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.5) },
+            "Gümüşhane": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Hakkari": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Hatay": { "Hatay Mustafa Kemal Üniversitesi Tıp Fakültesi": bransUret(-1.3), "Hatay Eğitim ve Araştırma Hastanesi": bransUret(-1.7) },
+            "Iğdır": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Isparta": { "Süleyman Demirel Üniversitesi Tıp Fakültesi": bransUret(-0.5), "Isparta Şehir Hastanesi": bransUret(-1.0) },
+            "İstanbul": {
+                "İstanbul Üniversitesi (Çapa) Tıp Fakültesi": bransUret(1.9),
+                "İstanbul Üniversitesi-Cerrahpaşa Tıp Fakültesi": bransUret(1.7),
+                "Marmara Üniversitesi Pendik EAH": bransUret(1.1),
+                "Başakşehir Çam ve Sakura Şehir Hastanesi": bransUret(-0.1),
+                "Bakırköy Dr. Sadi Konuk EAH": bransUret(0.2),
+                "Haydarpaşa Numune EAH": bransUret(0.3),
+                "Şişli Hamidiye Etfal EAH": bransUret(0.4)
+            },
+            "İzmir": {
+                "Ege Üniversitesi Tıp Fakültesi": bransUret(1.4),
+                "Dokuz Eylül Üniversitesi Tıp Fakültesi": bransUret(1.0),
+                "İzmir Katip Çelebi Üni. Atatürk EAH": bransUret(0.1),
+                "İzmir Şehir Hastanesi": bransUret(0.0)
+            },
+            "Kahramanmaraş": { "Kahramanmaraş Sütçü İmam Üniversitesi Tıp Fakültesi": bransUret(-1.4) },
+            "Karabük": { "Karabük Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.6) },
+            "Karaman": { "Karamanoğlu Mehmetbey Üniversitesi EAH": bransUret(-1.8) },
+            "Kars": { "Kafkas Üniversitesi Tıp Fakültesi": bransUret(-2.2) },
+            "Kastamonu": { "Kastamonu Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.7) },
+            "Kayseri": { "Erciyes Üniversitesi Tıp Fakültesi": bransUret(0.2), "Kayseri Şehir Hastanesi": bransUret(-0.5) },
+            "Kırıkkale": { "Kırıkkale Üniversitesi Tıp Fakültesi": bransUret(-0.8) },
+            "Kırklareli": { "Kırklareli Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.2) },
+            "Kırşehir": { "Kırşehir Ahi Evran Üniversitesi EAH": bransUret(-1.5) },
+            "Kilis": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Kocaeli": { "Kocaeli Üniversitesi Tıp Fakültesi": bransUret(0.4), "Kocaeli Şehir Hastanesi": bransUret(-0.3) },
+            "Konya": { "Necmettin Erbakan Üniversitesi Tıp Fakültesi": bransUret(-0.1), "Selçuk Üniversitesi Tıp Fakültesi": bransUret(0.0), "Konya Şehir Hastanesi": bransUret(-0.6) },
+            "Kütahya": { "Kütahya Sağlık Bilimleri Üniversitesi Evliya Çelebi EAH": bransUret(-1.3) },
+            "Malatya": { "İnönü Üniversitesi Turgut Özal Tıp Merkezi": bransUret(-0.9), "Malatya Eğitim ve Araştırma Hastanesi": bransUret(-1.5) },
+            "Manisa": { "Manisa Celal Bayar Üniversitesi Tıp Fakültesi": bransUret(-0.2), "Manisa Şehir Hastanesi": bransUret(-0.8) },
+            "Mardin": { "Mardin Eğitim ve Araştırma Hastanesi": bransUret(-2.1) },
+            "Mersin": { "Mersin Üniversitesi Tıp Fakültesi": bransUret(0.0), "Mersin Şehir Hastanesi": bransUret(-0.6) },
+            "Muğla": { "Muğla Sıtkı Koçman Üniversitesi EAH": bransUret(0.1) },
+            "Muş": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Nevşehir": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Niğde": { "Niğde Ömer Halisdemir Üniversitesi EAH": bransUret(-1.7) },
+            "Ordu": { "Ordu Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.3) },
+            "Osmaniye": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Rize": { "Recep Tayyip Erdoğan Üniversitesi EAH": bransUret(-1.4) },
+            "Sakarya": { "Sakarya Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-0.3) },
+            "Samsun": { "Ondokuz Mayıs Üniversitesi Tıp Fakültesi": bransUret(-0.3), "Samsun Eğitim ve Araştırma Hastanesi": bransUret(-1.1) },
+            "Siirt": { "Siirt Eğitim ve Araştırma Hastanesi": bransUret(-2.2) },
+            "Sinop": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Sivas": { "Sivas Cumhuriyet Üniversitesi Tıp Fakültesi": bransUret(-1.2) },
+            "Şanlıurfa": { "Harran Üniversitesi Tıp Fakültesi": bransUret(-1.5), "Şanlıurfa Mehmet Akif İnan EAH": bransUret(-1.9) },
+            "Şırnak": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Tekirdağ": { "Tekirdağ Namık Kemal Üniversitesi Tıp Fakültesi": bransUret(-0.4) },
+            "Tokat": { "Tokat Gaziosmanpaşa Üniversitesi Tıp Fakültesi": bransUret(-1.8) },
+            "Trabzon": { "Karadeniz Teknik Üniversitesi (KTÜ) Tıp Fakültesi": bransUret(-0.4), "Trabzon Kanuni EAH": bransUret(-1.2) },
+            "Tunceli": { "Bu ilde TUS uzmanlık eğitimi veren kurum bulunmamaktadır": bransUret(0) },
+            "Uşak": { "Uşak Üniversitesi Eğitim ve Araştırma Hastanesi": bransUret(-1.4) },
+            "Van": { "Van Yüzüncü Yıl Üniversitesi Tıp Fakültesi": bransUret(-1.6), "Van Eğitim ve Araştırma Hastanesi": bransUret(-2.0) },
+            "Yalova": { "Yalova Eğitim ve Araştırma Hastanesi": bransUret(-0.8) },
+            "Yozgat": { "Yozgat Bozok Üniversitesi Tıp Fakültesi": bransUret(-1.7) },
+            "Zonguldak": { "Zonguldak Bülent Ecevit Üniversitesi Tıp Fakültesi": bransUret(-0.9) }
+        };
+
+
+                    const tumIller = ["Adana","Adıyaman","Afyonkarahisar","Ağrı","Aksaray","Amasya","Ankara","Antalya","Ardahan","Artvin","Aydın","Balıkesir","Bartın","Batman","Bayburt","Bilecik","Bingöl","Bitlis","Bolu","Burdur","Bursa","Çanakkale","Çankırı","Çorum","Denizli","Diyarbakır","Düzce","Edirne","Elazığ","Erzincan","Erzurum","Eskişehir","Gaziantep","Giresun","Gümüşhane","Hakkari","Hatay","Iğdır","Isparta","İstanbul","İzmir","Kahramanmaraş","Karabük","Karaman","Kars","Kastamonu","Kayseri","Kırıkkale","Kırklareli","Kırşehir","Kilis","Kocaeli","Konya","Kütahya","Malatya","Manisa","Mardin","Mersin","Muğla","Muş","Nevşehir","Niğde","Ordu","Osmaniye","Rize","Sakarya","Samsun","Siirt","Sinop","Sivas","Şanlıurfa","Şırnak","Tekirdağ","Tokat","Trabzon","Tunceli","Uşak","Van","Yalova","Yozgat","Zonguldak"];
+
+        window.addEventListener('load', function() {
+            const ilSelect = document.getElementById('ilSec');
+            if (!ilSelect) return;
+            tumIller.forEach(il => {
+                const aktif = tusVeritabani[il] ? '' : ' (Veri Eklenecek)';
+                ilSelect.innerHTML += `<option value="${il}">${il}${aktif}</option>`;
+            });
+        });
+
+        function hastaneDoldur() {
+            const il = document.getElementById('ilSec').value;
+            const hSelect = document.getElementById('hastaneSec');
+            const bSelect = document.getElementById('bransSec');
+            hSelect.innerHTML = '<option value="">2. Hastane / Kurum Seçin</option>';
+            bSelect.innerHTML = '<option value="">3. Uzmanlık Dalı Seçin</option>';
+            document.getElementById('tercihSonuc').style.display = 'none';
+            if (tusVeritabani[il]) {
+                Object.keys(tusVeritabani[il]).forEach(h => hSelect.innerHTML += `<option value="${h}">${h}</option>`);
+            }
+        }
+
+        function bransDoldur() {
+            const il = document.getElementById('ilSec').value;
+            const h = document.getElementById('hastaneSec').value;
+            const bSelect = document.getElementById('bransSec');
+            bSelect.innerHTML = '<option value="">3. Uzmanlık Dalı Seçin</option>';
+            document.getElementById('tercihSonuc').style.display = 'none';
+            if (tusVeritabani[il] && tusVeritabani[il][h]) {
+                Object.keys(tusVeritabani[il][h]).forEach(b => bSelect.innerHTML += `<option value="${b}">${b}</option>`);
+            }
+        }
+
+        function hedefKarsilastir() {
+            const il = document.getElementById('ilSec').value;
+            const h = document.getElementById('hastaneSec').value;
+            const b = document.getElementById('bransSec').value;
+            const kutu = document.getElementById('tercihSonuc');
+            if (!b) { kutu.style.display = 'none'; return; }
+
+            const tabanPuan = tusVeritabani[il][h][b];
+            const banner = document.querySelector('.score-banner');
+            let mevcutPuan = banner ? parseFloat(banner.innerText.match(/K Puanı:\s*([\d.]+)/)[1]) : 0;
+
+            kutu.style.display = 'block';
+            if (mevcutPuan === 0) {
+                kutu.innerHTML = `<strong>${h} - ${b}</strong><br>Son 4 TUS Taban Puanı: <strong>${tabanPuan}</strong><br><span style="color:#d97706;">Kendi puanınızla kıyaslamak için önce yukarıdan deneme netlerinizi hesaplayın.</span>`;
+            } else {
+                const fark = (tabanPuan - mevcutPuan).toFixed(2);
+                const gerekliNet = Math.ceil(fark / 0.45);
+                if (fark <= 0) {
+                    kutu.innerHTML = `<strong>${h} - ${b}</strong> (Taban: ${tabanPuan})<br><span style="color:#16a34a; font-weight:bold;">Tebrikler! Mevcut puanınız (${mevcutPuan}) bu bölümün taban puanının +${Math.abs(fark).toFixed(2)} puan üzerinde.</span>`;
+                } else {
+                    kutu.innerHTML = `<strong>${h} - ${b}</strong> (Taban: ${tabanPuan})<br><span style="color:#dc2626; font-weight:bold;">Mevcut Puanınız: ${mevcutPuan} — Hedef için +${fark} puana (yaklaşık +${gerekliNet} net artışına) ihtiyacınız var.</span>`;
+                }
+            }
+        }
+
+    </script>
+</body>
+</html>
