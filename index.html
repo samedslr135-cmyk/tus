@@ -123,56 +123,147 @@
         return Math.min(85, Math.max(30, 55 + (ap - 50) * 0.65));
     }
     let sonHesap = null;
-    function hesapla() {
+      function hesapla() {
         netGuncelle();
         const kalanGun = parseFloat(document.getElementById("kalanGun").value) || 90;
         const gunlukSaat = parseFloat(document.getElementById("gunlukSaat").value) || 6;
-        const toplamSaat = kalanGun * gunlukSaat;
-        let tumDersler = [], temelNet = 0, klinikNet = 0;
+        const carpan = parseFloat(document.getElementById("kesinti").value) || 1;
+        const toplamSaat = Math.round(kalanGun * gunlukSaat);
+
+        let gecmis = JSON.parse(localStorage.getItem('tusDenemeler') || '[]');
+        let kisiselHizCarpan = 1.0;
+        if (gecmis.length > 0) {
+            let son = gecmis[gecmis.length - 1];
+            let oncekiToplam = son.temel + son.klinik;
+            let simdikiToplam = parseFloat(document.getElementById("ozetTemel").value) + parseFloat(document.getElementById("ozetKlinik").value);
+            if (simdikiToplam > oncekiToplam) {
+                kisiselHizCarpan = Math.min(1.45, 1 + ((simdikiToplam - oncekiToplam) / 100));
+            }
+        }
+
+        let tumDersler = [];
+        let temelNet = 0, klinikNet = 0;
 
         temelDersler.forEach((d, i) => {
-            let net = parseFloat(document.getElementById(`t_n_${i}`).innerText) || 0; temelNet += net;
-            let potansiyel = Math.max(0, d.soru - Math.max(0, net));
-            tumDersler.push({ ad: d.ad, bolum: "Temel", soru: d.soru, net: net, potansiyel: potansiyel, agirlik: potansiyel * d.hiz * 0.9 });
+            let dogru = parseInt(document.getElementById(`t_d_${i}`).value) || 0;
+            let yanlis = parseInt(document.getElementById(`t_y_${i}`).value) || 0;
+            let bos = d.soru - (dogru + yanlis);
+            let net = dogru - (yanlis * 0.25);
+            temelNet += net;
+            tumDersler.push({
+                ad: d.ad, bolum: "Temel", soru: d.soru, dogru: dogru, yanlis: yanlis, bos: bos,
+                net: net, simNet: Math.max(0, net), saat: 0, hiz: d.hiz * kisiselHizCarpan, puanAgirlik: 0.4
+            });
         });
+
         klinikDersler.forEach((d, i) => {
-            let net = parseFloat(document.getElementById(`k_n_${i}`).innerText) || 0; klinikNet += net;
-            let potansiyel = Math.max(0, d.soru - Math.max(0, net));
-            tumDersler.push({ ad: d.ad, bolum: "Klinik", soru: d.soru, net: net, potansiyel: potansiyel, agirlik: potansiyel * d.hiz * 1.1 });
+            let dogru = parseInt(document.getElementById(`k_d_${i}`).value) || 0;
+            let yanlis = parseInt(document.getElementById(`k_y_${i}`).value) || 0;
+            let bos = d.soru - (dogru + yanlis);
+            let net = dogru - (yanlis * 0.25);
+            klinikNet += net;
+            tumDersler.push({
+                ad: d.ad, bolum: "Klinik", soru: d.soru, dogru: dogru, yanlis: yanlis, bos: bos,
+                net: net, simNet: Math.max(0, net), saat: 0, hiz: d.hiz * kisiselHizCarpan, puanAgirlik: 0.6
+            });
         });
 
-        let toplamAgirlik = tumDersler.reduce((acc, item) => acc + item.agirlik, 0) || 1;
-        let hedefTemelNet = temelNet, hedefKlinikNet = klinikNet;
+        // İteratif Marjinal Kazanç Optimizasyonu (1'er saatlik adımlarla en yüksek dPuan/dt seçimi)
+        for (let t = 0; t < toplamSaat; t++) {
+            let enIyiIndex = -1;
+            let maxMarjinalGetiri = -1;
 
-        tumDersler.forEach(item => {
-            item.saat = (item.agirlik / toplamAgirlik) * toplamSaat;
-            let tahminiArtis = item.potansiyel * (1 - Math.exp(-item.saat / (item.soru * 1.8)));
-            item.hedefNet = Math.min(item.soru, Math.max(0, item.net) + tahminiArtis);
-            if (item.bolum === "Temel") hedefTemelNet += (item.hedefNet - item.net); else hedefKlinikNet += (item.hedefNet - item.net);
+            tumDersler.forEach((ders, idx) => {
+                let kalanPotansiyel = Math.max(0, ders.soru - ders.simNet);
+                if (kalanPotansiyel > 0.05) {
+                    let hataOrani = ders.yanlis > ders.bos ? 1.25 : 1.0;
+                    let marjinalNet = (kalanPotansiyel / (ders.soru * 1.9)) * ders.hiz * hataOrani;
+                    let marjinalPuan = marjinalNet * ders.puanAgirlik;
+                    if (marjinalPuan > maxMarjinalGetiri) {
+                        maxMarjinalGetiri = marjinalPuan;
+                        enIyiIndex = idx;
+                    }
+                }
+            });
+
+            if (enIyiIndex !== -1) {
+                let secilen = tumDersler[enIyiIndex];
+                let kalanPotansiyel = secilen.soru - secilen.simNet;
+                let hataOrani = secilen.yanlis > secilen.bos ? 1.25 : 1.0;
+                let netArtis = (kalanPotansiyel / (secilen.soru * 1.9)) * secilen.hiz * hataOrani;
+                secilen.saat += 1;
+                secilen.simNet = Math.min(secilen.soru, secilen.simNet + netArtis);
+            }
+        }
+
+        let hedefTemelNet = 0, hedefKlinikNet = 0;
+        tumDersler.forEach(d => {
+            d.hedefNet = Math.max(d.net, d.simNet);
+            if (d.bolum === "Temel") hedefTemelNet += d.hedefNet;
+            else hedefKlinikNet += d.hedefNet;
+
+            // Hata Profili Teşhisi (Konu vs Soru Dağılımı)
+            if (d.net >= d.soru * 0.8) {
+                d.profil = "Yüksek Hakimiyet — Hızlı Tekrar";
+                d.konuSaat = d.saat * 0.2;
+                d.soruSaat = d.saat * 0.8;
+            } else if (d.yanlis >= d.bos && d.yanlis >= 2) {
+                d.profil = "Çeldirici Hatası Baskın (Yanlış > Boş)";
+                d.konuSaat = d.saat * 0.25;
+                d.soruSaat = d.saat * 0.75;
+            } else {
+                d.profil = "Bilgi Eksikliği Baskın (Boş > Yanlış)";
+                d.konuSaat = d.saat * 0.70;
+                d.soruSaat = d.saat * 0.30;
+            }
         });
+
         tumDersler.sort((a, b) => b.saat - a.saat);
 
-       const carpan = parseFloat(document.getElementById("kesinti").value) || 1;
-let mevcutPuan = puanHesapla(temelNet, klinikNet, 'K') * carpan, hedefPuan = puanHesapla(hedefTemelNet, hedefKlinikNet, 'K') * carpan;
-let mevcutTPuan = puanHesapla(temelNet, klinikNet, 'T') * carpan, hedefTPuan = puanHesapla(hedefTemelNet, hedefKlinikNet, 'T') * carpan;
+        let mevcutPuan = puanHesapla(temelNet, klinikNet, 'K') * carpan;
+        let hedefPuan = puanHesapla(hedefTemelNet, hedefKlinikNet, 'K') * carpan;
+        let mevcutTPuan = puanHesapla(temelNet, klinikNet, 'T') * carpan;
+        let hedefTPuan = puanHesapla(hedefTemelNet, hedefKlinikNet, 'T') * carpan;
 
+        let kalibrasyonNotu = gecmis.length > 0
+            ? `<span style="color:#16a34a; font-weight:600;">✓ Kişisel Öğrenme Hızı Kalibre Edildi (Çarpan: ${kisiselHizCarpan.toFixed(2)}x)</span>`
+            : `<span style="color:#64748b;">İpucu: Denemeyi kaydettiğinizde 2. denemede sistem kendi öğrenme hızınızı otomatik kalibre eder.</span>`;
 
         let html = `<div class="score-banner">
             <strong>K Puanı (Klinik):</strong> ${mevcutPuan.toFixed(2)} &nbsp;➔&nbsp; Optimizasyonla Ulaşabileceğin: <span style="color:#16a34a; font-weight:bold;">${hedefPuan.toFixed(2)} (+${(hedefPuan - mevcutPuan).toFixed(2)})</span><br>
             <strong>T Puanı (Temel):</strong> ${mevcutTPuan.toFixed(2)} &nbsp;➔&nbsp; Optimizasyonla Ulaşabileceğin: <span style="color:#16a34a; font-weight:bold;">${hedefTPuan.toFixed(2)} (+${(hedefTPuan - mevcutTPuan).toFixed(2)})</span><br>
-            <span style="font-size:12px; color:#475569;">Mevcut Netler: Temel ${temelNet.toFixed(2)} | Klinik ${klinikNet.toFixed(2)} &nbsp;•&nbsp; Toplam Çalışma Süresi: ${toplamSaat} Saat</span>
-        </div><div class="table-wrap"><table><tr><th>Öncelik</th><th>Branş</th><th>Mevcut Net</th><th>Önerilen Süre</th><th>Hedef Net</th></tr>`;
+            <span style="font-size:12px; color:#475569;">Mevcut Netler: Temel ${temelNet.toFixed(2)} | Klinik ${klinikNet.toFixed(2)} &nbsp;•&nbsp; Toplam Bütçe: ${toplamSaat} Saat</span><br>
+            <div style="font-size:12px; margin-top:4px;">${kalibrasyonNotu}</div>
+        </div>
+        <div class="table-wrap"><table>
+            <tr><th>Öncelik</th><th>Branş & Kişisel Hata Teşhisi</th><th>Mevcut Net</th><th>Kişiye Özel Süre Reçetesi</th><th>Hedef Net</th></tr>`;
 
         tumDersler.forEach((item, idx) => {
             let etiket = idx < 4 ? '<span class="badge b-high">1. Öncelik</span>' : (idx < 8 ? '<span class="badge b-mid">2. Öncelik</span>' : '<span class="badge b-low">Koruma</span>');
-            html += `<tr><td>${etiket}</td><td><strong>${item.ad}</strong></td><td>${item.net.toFixed(2)} / ${item.soru}</td><td><strong>${item.saat.toFixed(1)} saat</strong></td><td style="color:#16a34a; font-weight:bold;">${item.hedefNet.toFixed(2)}</td></tr>`;
+            html += `<tr>
+                <td>${etiket}</td>
+                <td><strong>${item.ad}</strong><br><span style="font-size:11px; color:#64748b;">${item.profil}</span></td>
+                <td>${item.net.toFixed(2)} / ${item.soru}</td>
+                <td><strong>Toplam ${item.saat} sa</strong><br><span style="font-size:11px; color:#2563eb;">${item.konuSaat.toFixed(0)}s Konu + ${item.soruSaat.toFixed(0)}s Soru/Yanlış</span></td>
+                <td style="color:#16a34a; font-weight:bold;">${item.hedefNet.toFixed(2)}</td>
+            </tr>`;
         });
-        html += `</table></div><button onclick="denemeKaydet()" style="background:#16a34a; color:#fff; border:none; padding:10px 16px; border-radius:6px; cursor:pointer; font-weight:bold; margin-top:12px; width:100%;">Bu Denemeyi Gelişim Grafiğine Kaydet</button>`;
+
+        html += `</table></div>
+        <button onclick="denemeKaydet()" style="background:#16a34a; color:#fff; border:none; padding:10px 16px; border-radius:6px; cursor:pointer; font-weight:bold; margin-top:12px; width:100%;">Bu Denemeyi Gelişim Grafiğine Kaydet ve Modeli Kalibre Et</button>`;
 
         const sonucAlani = document.getElementById("sonucAlani");
-        sonucAlani.innerHTML = html; sonucAlani.style.display = "block";
-        sonHesap = { tarih: new Date().toLocaleDateString('tr-TR'), temel: temelNet, klinik: klinikNet, puan: mevcutPuan };
+        sonucAlani.innerHTML = html;
+        sonucAlani.style.display = "block";
+
+        sonHesap = {
+            tarih: new Date().toLocaleDateString('tr-TR'),
+            temel: temelNet,
+            klinik: klinikNet,
+            puan: mevcutPuan
+        };
     }
+
 
     function denemeKaydet() {
         if (!sonHesap) return;
